@@ -1,0 +1,183 @@
+---
+title: "Build and deploy a stroke prediction model using R"
+date: "`r Sys.Date()`"
+output: html_document
+author: "Put your name!"
+---
+
+# About Data Analysis Report
+
+This RMarkdown file contains the report of the data analysis done for the project on building and deploying a stroke prediction model in R. It contains analysis such as data exploration, summary statistics and building the prediction models. The final report was completed on `r date()`. 
+
+**Data Description:**
+
+According to the World Health Organization (WHO) stroke is the 2nd leading cause of death globally, responsible for approximately 11% of total deaths.
+
+This data set is used to predict whether a patient is likely to get stroke based on the input parameters like gender, age, various diseases, and smoking status. Each row in the data provides relevant information about the patient.
+
+
+# Task One: Import data and data preprocessing
+
+## Load data and install packages
+
+```{r include=FALSE}
+library(tidymodels)
+
+library(tidyverse)
+library(workflows)
+library(tune)
+```
+
+```{r include=FALSE}
+df_strokes_raw <- read.csv("healthcare-dataset-stroke-data.csv")
+
+```
+
+## Literature related to factors influencing the apparition of brain strokes:
+
+*
+*
+*
+
+## Describe and explore the data
+
+Outcome of interest: Stroke ; Units: PatientID
+```{r}
+
+# PAtientID (to get sample size)
+# Outcome of interest: Stroke
+
+# number of unique patients in table
+print( length(unique(df_strokes_raw$id)) )
+
+# are there duplications?
+nrow(df_strokes_raw) 
+
+# people with and without stroke and any NA?
+table(df_strokes_raw$stroke, useNA="always")
+
+
+```
+- We can see there is no empty values in patient id, neither in the outcome stroke
+- we can see there is an imbalance in the amount of patients with stroke vs patients with no stroke. this could promote bias in some analysis like logistic regression. Careful!
+
+
+```{r}
+
+
+# Describe categorical variables with frequency tables
+# gender, hypertension, heart_disease. ever_married, work_type, Residence_type, smoking_status
+table(df_strokes_raw$gender, useNA="always")
+table(df_strokes_raw$hypertension, useNA="always") #imbalance
+table(df_strokes_raw$heart_disease, useNA="always") # imbalance!
+table(df_strokes_raw$ever_married, useNA="always")
+table(df_strokes_raw$work_type, useNA="always") # maybe here is worth to regroup the categories for a logistic regression
+table(df_strokes_raw$Residence_type, useNA="always") 
+table(df_strokes_raw$smoking_status, useNA="always")
+
+
+
+# Describe continuous variables with histograms
+# age, avg_glucose_level, bmi
+
+summary(df_strokes_raw$age) # flat distribution (no normal)
+hist(df_strokes_raw$age)
+
+summary(df_strokes_raw$avg_glucose_level) # skewed distribution (no normal)
+hist(df_strokes_raw$avg_glucose_level)
+
+summary(df_strokes_raw$bmi) # this needs to be converted to numeric!
+hist(df_strokes_raw$bmi)
+#table(df_strokes_raw$bmi)
+
+
+```
+
+Surprisingly, there are no empty values in any of the columns. 
+Also we dont see outliers in Age , and glucose levels
+So we just need to reformat the bmi to float, and regroup smoking_status and work_type. maybe for testing purposes, create also groups of age and BMI
+**Cleaning data:**
+
+```{r}
+df_strokes_logreg <- df_strokes_raw %>%
+  mutate(
+      bmi_numeric = if_else(bmi=='N/A', NA, as.numeric(bmi)),
+      smoking_status_regrouped = if_else(
+        smoking_status %in% c('formerly smoked',"smokes") ,
+        "smokes or smoked",
+        smoking_status
+      ),
+      work_type_regrouped = if_else(
+        work_type %in% c('children', 'Never worked'),
+        'Other',
+        work_type
+      )
+    
+         )
+
+summary(df_strokes_logreg$bmi_numeric)
+hist(df_strokes_logreg$bmi_numeric)
+
+```
+
+# Task Two: Build prediction models
+
+We want to understand which factors are promoting the outcome of having a stroke. In helathcare due to the interpretability (easier than other ML models) the most common model is logistic regression (used when binary is outcome, and under certain assumptions that we will test). So we first will start through it. 
+
+```{r}
+
+```
+
+
+
+
+# Task Three: Evaluate and select prediction models
+
+```{r}
+
+```
+
+
+
+# Task Four: Deploy the prediction model
+
+```{r}
+
+```
+
+
+
+
+# Task Five: Findings and Conclusions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

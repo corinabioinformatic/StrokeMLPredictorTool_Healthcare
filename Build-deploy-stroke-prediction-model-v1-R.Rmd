@@ -1,0 +1,355 @@
+---
+title: "Build and deploy a stroke prediction model using R"
+date: "`r Sys.Date()`"
+output: html_document
+author: "Put your name!"
+---
+
+# About Data Analysis Report
+
+This RMarkdown file contains the report of the data analysis done for the project on building and deploying a stroke prediction model in R. It contains analysis such as data exploration, summary statistics and building the prediction models. The final report was completed on `r date()`. 
+
+**Data Description:**
+
+According to the World Health Organization (WHO) stroke is the 2nd leading cause of death globally, responsible for approximately 11% of total deaths.
+
+This data set is used to predict whether a patient is likely to get stroke based on the input parameters like gender, age, various diseases, and smoking status. Each row in the data provides relevant information about the patient.
+
+
+# Task One: Import data and data preprocessing
+
+## Load data and install packages
+
+```{r include=FALSE}
+library(tidymodels)
+
+library(tidyverse)
+library(workflows)
+library(tune)
+```
+
+```{r include=FALSE}
+df_strokes_raw <- read.csv("healthcare-dataset-stroke-data.csv", stringsAsFactors = FALSE)
+
+```
+
+## Literature related to factors influencing the apparition of brain strokes:
+
+*
+*
+*
+
+## Describe and explore the data
+
+Outcome of interest: Stroke ; Units: PatientID
+```{r}
+
+# PAtientID (to get sample size)
+# Outcome of interest: Stroke
+
+# number of unique patients in table
+print( length(unique(df_strokes_raw$id)) )
+
+# are there duplications?
+nrow(df_strokes_raw) 
+
+# people with and without stroke and any NA?
+table(df_strokes_raw$stroke, useNA="always")
+
+
+```
+- We can see there is no empty values in patient id, neither in the outcome stroke
+- we can see there is an imbalance in the amount of patients with stroke vs patients with no stroke. this could promote bias in some analysis like logistic regression. Careful!
+
+
+```{r}
+
+
+# Describe categorical variables with frequency tables
+# gender, hypertension, heart_disease. ever_married, work_type, Residence_type, smoking_status
+table(df_strokes_raw$gender, useNA="always")
+table(df_strokes_raw$hypertension, useNA="always")
+table(df_strokes_raw$heart_disease, useNA="always") # imbalance!
+table(df_strokes_raw$ever_married, useNA="always")
+table(df_strokes_raw$work_type, useNA="always")
+table(df_strokes_raw$Residence_type, useNA="always")
+table(df_strokes_raw$smoking_status, useNA="always")
+
+
+
+# Describe continuous variables with histograms
+# age, avg_glucose_level, bmi
+
+summary(df_strokes_raw$age) # flat distribution (no normal)
+hist(df_strokes_raw$age)
+
+summary(df_strokes_raw$avg_glucose_level) # skewed distribution (no normal)
+hist(df_strokes_raw$avg_glucose_level)
+
+summary(df_strokes_raw$bmi) # this needs to be converted to numeric!
+hist(df_strokes_raw$bmi)
+
+
+```
+
+
+Cleaning the data for some ML
+
+```{r}
+df_strokes_ml <- df_strokes_raw %>%
+  mutate(
+      bmi_numeric = if_else(bmi=='N/A', NA, as.numeric(bmi)),
+      smoking_status_regrouped = if_else(
+        smoking_status %in% c('formerly smoked',"smokes") ,
+        "smokes or smoked",
+        smoking_status
+      ),
+      work_type_regrouped = if_else(
+        work_type %in% c('children', 'Never worked'),
+        'Other',
+        work_type
+      ), 
+      # OUTCOME stroke <- FACTOR type!
+      stroke_factor = stroke,
+      heart_disease_factor = heart_disease,
+      gender_factor = gender,
+      ever_married_factor = ever_married,
+      work_type_regrouped_factor = work_type_regrouped,
+      Residence_type_factor = Residence_type,
+      smoking_status_regrouped_factor = smoking_status_regrouped
+         )
+
+df_strokes_ml$stroke_factor <- as.factor(df_strokes_ml$stroke_factor)
+df_strokes_ml$heart_disease_factor <- as.factor(df_strokes_ml$heart_disease_factor)
+df_strokes_ml$gender_factor <- as.factor(df_strokes_ml$gender_factor)
+df_strokes_ml$ever_married_factor <- as.factor(df_strokes_ml$ever_married_factor)
+df_strokes_ml$work_type_regrouped_factor <- as.factor(df_strokes_ml$work_type_regrouped_factor)
+df_strokes_ml$Residence_type_factor <- as.factor(df_strokes_ml$Residence_type_factor)
+df_strokes_ml$smoking_status_regrouped_factor <- as.factor(df_strokes_ml$smoking_status_regrouped_factor)
+
+summary(df_strokes_ml$bmi_numeric)
+
+```
+
+###------------------------------------------
+STEPS  provided at: https://www.rebeccabarter.com/blog/2020-03-25_machine_learning#what-is-tidymodels
+
+## 1 Split into train/test
+
+```{r step1}
+
+set.seed(234589)
+# split the data into trainng (75%) and testing (25%)
+strokes_split <- initial_split(df_strokes_ml, 
+                                prop = 3/4)
+strokes_split
+
+# extract training and testing sets
+diabetes_train <- training(strokes_split)
+diabetes_test <- testing(strokes_split)
+
+# create CV object from training data
+diabetes_cv <- vfold_cv(diabetes_train)
+
+```
+
+## 2 Define a recipe
+
+```{r step2}
+
+# define the recipe
+# diabetes_recipe <-
+#   # which consists of the formula (outcome ~ predictors)
+#   recipe(stroke ~ gender+age+hypertension+heart_disease+ever_married + Residence_type + avg_glucose_level + bmi_numeric + smoking_status_regrouped+ work_type_regrouped,
+#          data = df_strokes_ml) %>%
+#   # and some pre-processing steps
+#   step_normalize(all_numeric()) %>%
+#   step_impute_knn(all_predictors())
+
+diabetes_recipe <-
+  # which consists of the formula (outcome ~ predictors)
+  recipe(stroke_factor ~ gender_factor+age+hypertension+heart_disease_factor+ever_married_factor + Residence_type_factor + avg_glucose_level + bmi_numeric + smoking_status_regrouped_factor+ work_type_regrouped_factor,
+         data = df_strokes_ml) %>%
+  # and some pre-processing steps
+  step_normalize(all_numeric()) %>%
+  step_impute_knn(all_predictors())
+
+diabetes_recipe
+
+diabetes_train_preprocessed <- diabetes_recipe %>%
+  # apply the recipe to the training data
+  prep(diabetes_train) %>%
+  # extract the pre-processed training dataset
+  juice()
+diabetes_train_preprocessed
+
+
+```
+
+
+## 3 Specify the model
+
+There are a few primary components that you need to provide for the model specification
+
+* The model type: what kind of model you want to fit, set using a different function depending on the model, such as rand_forest() for random forest, logistic_reg() for logistic regression, svm_poly() for a polynomial SVM model etc. The full list of models available via parsnip can be found here.
+* The arguments: the model parameter values (now consistently named across different models), set using set_args().
+* The engine: the underlying package the model should come from (e.g. “ranger” for the ranger implementation of Random Forest), set using set_engine().
+* The mode: the type of prediction - since several packages can do both classification (binary/categorical prediction) and regression (continuous prediction), set using set_mode().
+
+
+```{r step3}
+rf_model <- 
+  # specify that the model is a random forest
+  rand_forest() %>%
+  # specify that the `mtry` parameter needs to be tuned
+  set_args(mtry = tune()) %>%
+  # select the engine/package that underlies the model
+  set_engine("ranger", importance = "impurity") %>%
+  # choose either the continuous regression or binary classification mode
+  set_mode("classification") 
+
+
+lr_model <- 
+  # specify that the model is a random forest
+  logistic_reg() %>%
+  # select the engine/package that underlies the model
+  set_engine("glm") %>%
+  # choose either the continuous regression or binary classification mode
+  set_mode("classification") 
+
+
+```
+
+
+## 4 Put it all together in a Workflow
+
+```{r step4}
+# set the workflow
+rf_workflow <- workflow() %>%
+  # add the recipe
+  add_recipe(diabetes_recipe) %>%
+  # add the model
+  add_model(rf_model)
+
+print("Success!")
+
+```
+
+## 5 Tune the parameters
+
+```{r step5}
+library(ranger) ##!! ERROR! ensure the outcome is afactor!
+# specify which values eant to try
+rf_grid <- expand.grid(mtry = c(3, 4, 5))
+# extract results
+rf_tune_results <- rf_workflow %>%
+  tune_grid(resamples = diabetes_cv, #CV object
+            grid = rf_grid, # grid of values to try
+            metrics = metric_set(accuracy, roc_auc) # metrics we care about
+            )
+```
+
+It’s always a good idea to explore the results of the cross-validation. collect_metrics() is a really handy function that can be used in a variety of circumstances to extract any metrics that have been calculated within the object it’s being used on. In this case, the metrics come from the cross-validation performance across the different values of the parameters.
+
+
+```{r}
+# print results
+rf_tune_results %>%
+  collect_metrics()
+```
+
+
+## 6 Finalize the workflow
+
+We can extract the best value for the accuracy metric by applying the `select_best()` function to the tune object.
+ 
+```{r step6}
+param_final <- rf_tune_results %>%
+  select_best(metric = "accuracy")
+param_final
+
+# Then we can add this parameter to the workflow using the finalize_workflow() function.
+
+rf_workflow <- rf_workflow %>%
+  finalize_workflow(param_final)
+```
+
+## 7 evaluate the model on the test set
+
+Now we’ve defined our recipe, our model, and tuned the model’s parameters, we’re ready to actually fit the final model. Since all of this information is contained within the workflow object, we will apply the last_fit() function to our workflow and our train/test split object. This will automatically train the model specified by the workflow using the training data, and produce evaluations based on the test set.
+
+```{r step7}
+rf_fit <- rf_workflow %>%
+  # fit on the training set and evaluate on test set
+  last_fit(strokes_split)
+
+rf_fit
+
+test_performance <- rf_fit %>% collect_metrics()
+test_performance
+
+# generate predictions from the test set
+test_predictions <- rf_fit %>% collect_predictions()
+test_predictions
+```
+
+
+```{r}
+
+# generate a confusion matrix
+test_predictions %>% 
+  conf_mat(truth = stroke_factor, estimate = .pred_class)
+
+test_predictions %>%
+  ggplot() +
+  geom_density(aes(x = .pred_pos, fill = stroke_factor), 
+               alpha = 0.5)
+
+
+library(purrr)
+test_predictions <- rf_fit %>% pull(.predictions)
+test_predictions
+```
+
+
+## 8 Fitting and using your final model
+
+```{r step8}
+final_model <- fit(rf_workflow, df_strokes_ml)
+
+final_model
+
+# df_strokes_ml[1,c("gender_factor", "age", "hypertension", "heart_disease_factor", "ever_married_factor" , "Residence_type_factor" , "avg_glucose_level" , "bmi_numeric" ,"smoking_status_regrouped_factor","work_type_regrouped_factor")]
+
+new_woman <- tribble(~gender_factor,~age,~hypertension,~heart_disease_factor,~ever_married_factor ,~Residence_type_factor ,~ avg_glucose_level ,~ bmi_numeric ,~smoking_status_regrouped_factor,~work_type_regrouped_factor,
+                     "Male", 50, 0, 1, "Yes", "Urban", 228.69, 36.6, "smokes or smoked", "Private")
+
+new_woman_old <-  df_strokes_ml[1,c("gender_factor", "age", "hypertension", "heart_disease_factor", "ever_married_factor" , "Residence_type_factor" , "avg_glucose_level" , "bmi_numeric" ,"smoking_status_regrouped_factor","work_type_regrouped_factor")]
+
+predict(final_model, new_data = new_woman_old)
+
+```
+
+The predicted diabetes status of this new woman is 1 , that stands for Stroke Positive.
+
+## 9 Variable importance
+
+If you want to extract the variable importance scores from your model, as far as I can tell, for now you need to extract the model object from the `fit()` object (which for us is called final_model). The function that extracts the model is `extract_fit_parsnip()` and then you need to grab the fit object that the output contains.
+
+```{r step9}
+ranger_obj <- extract_fit_parsnip(final_model)$fit
+
+
+ranger_obj
+```
+
+Then you can extract the variable importance from the ranger object itself (variable.importance is a specific object contained within ranger output - this will need to be adapted for the specific object type of other models).
+
+```{r}
+ranger_obj$variable.importance
+```
+
+###------------------------------------------
+ 
+
+
